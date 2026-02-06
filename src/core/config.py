@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # Google OAuth
     google_client_id: str = ""
+    google_client_id_mobile: str = ""
     google_client_secret: str = ""
 
     # JWT
@@ -72,6 +73,7 @@ def get_settings() -> Settings:
         "DB_INSTANCE_CONNECTION_NAME",
         "GEMINI_API_KEY",
         "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_ID_MOBILE",
         "GOOGLE_CLIENT_SECRET",
         "JWT_SECRET_KEY",
         "VERTEX_AI_SEARCH_DATASTORE_ID",

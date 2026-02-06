@@ -10,7 +10,7 @@ def _get_client() -> genai.Client:
     return genai.Client(api_key=settings.gemini_api_key)
 
 
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-3.0-flash-preview"
 
 
 async def generate_tasks(

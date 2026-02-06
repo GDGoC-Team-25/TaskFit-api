@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user_id
 from src.core.database import get_db
-from src.core.response import success_response
+from src.core.response import ApiResponse, success_response
 from src.models.schemas.company import CompanyBrief
 from src.models.schemas.evaluation import (
     AnalysisPoints,
@@ -25,7 +25,7 @@ from src.services import (
 router = APIRouter(prefix="/evaluations", tags=["평가"])
 
 
-@router.get("/{evaluation_id}", response_model=dict)
+@router.get("/{evaluation_id}", response_model=ApiResponse[EvaluationDetailResponse])
 async def get_evaluation_detail(
     evaluation_id: int,
     user_id: int = Depends(get_current_user_id),

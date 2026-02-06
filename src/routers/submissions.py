@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user_id
 from src.core.database import get_db
-from src.core.response import success_response
+from src.core.response import ApiResponse, success_response
 from src.models.schemas.message import MessageResponse
 from src.models.schemas.submission import (
     SubmissionCreateRequest,
@@ -23,7 +23,7 @@ from src.services import (
 router = APIRouter(prefix="/submissions", tags=["제출"])
 
 
-@router.post("", response_model=dict)
+@router.post("", response_model=ApiResponse[SubmissionCreateResponse])
 async def create_submission(
     body: SubmissionCreateRequest,
     user_id: int = Depends(get_current_user_id),
@@ -122,7 +122,7 @@ async def create_submission(
     return success_response(response.model_dump())
 
 
-@router.put("/{submission_id}", response_model=dict)
+@router.put("/{submission_id}", response_model=ApiResponse[SubmissionResponse])
 async def update_submission(
     submission_id: int,
     body: SubmissionUpdateRequest,
@@ -157,7 +157,7 @@ async def update_submission(
     return success_response(SubmissionResponse.model_validate(updated).model_dump())
 
 
-@router.get("/{submission_id}", response_model=dict)
+@router.get("/{submission_id}", response_model=ApiResponse[SubmissionResponse])
 async def get_submission(
     submission_id: int,
     user_id: int = Depends(get_current_user_id),
