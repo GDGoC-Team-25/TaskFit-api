@@ -1,16 +1,17 @@
-# TaskFit API 기획
+# TaskFit API 수정 기획 (UI 기반)
 
 ## 결정사항 요약
 
-- 기업/직무: 사전 등록 (시드 데이터)
+- 기업/직무: **사전 등록 + 검색** (companies, job_roles 테이블 유지)
 - 인증: Google OAuth → JWT 발급
-- 채팅: 동기 REST (요청-응답)
-- 과제: 기업+직무 조합당 3~5개 생성 후 DB 캐싱
-- **DB FK 미사용**: ForeignKey 제약조건 없이 Integer 컬럼으로만 관리. 관계는 코드(application) 레벨에서 처리.
+- **두 플로우 분리, 데이터 연결**: 홈(문제 풀이) + 직무대화(AI 채팅) → submission → thread → evaluation
+- 과제: 기업+직무 조합 기반 AI 생성, `POST /tasks/generate`로 명시적 생성
+- DB FK 미사용: Integer 컬럼만, 관계는 코드 레벨
+- 북마크/오답노트/순위: **보류**
 
 ---
 
-## 1. DB 스키마
+## 1. DB 스키마 (9개 테이블)
 
 ### users
 | 컬럼 | 타입 | 설명 |
@@ -19,27 +20,31 @@
 | google_id | String UNIQUE | Google OAuth sub |
 | email | String UNIQUE | |
 | name | String | |
+| bio | Text NULL | 자기소개 |
 | profile_image | String NULL | |
 | created_at | DateTime | |
 | updated_at | DateTime | |
 
-### companies
+### companies (사전 등록)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | Integer PK | |
-| name | String UNIQUE | 기업명 (토스, 카카오 등) |
+| name | String UNIQUE | 기업명 |
 | description | Text NULL | 기업 소개 |
 | logo_url | String NULL | |
 | tech_blog_url | String NULL | 기술 블로그 URL |
 | created_at | DateTime | |
 
-### job_roles
+### job_roles (사전 등록)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | Integer PK | |
-| name | String UNIQUE | 직무명 (백엔드, 프론트엔드 등) |
+| category | String | 직무 대분류 (개발, 마케팅, 디자인) |
+| name | String | 실무 상세 (소프트웨어 엔지니어, 전략기획) |
 | description | Text NULL | |
 | created_at | DateTime | |
+
+UNIQUE: `(category, name)`
 
 ### tasks
 | 컬럼 | 타입 | 설명 |
@@ -47,23 +52,15 @@
 | id | Integer PK | |
 | company_id | Integer | companies.id 참조 |
 | job_role_id | Integer | job_roles.id 참조 |
-| title | String | 과제 제목 |
-| persona_name | String | 상사 이름 (김과장 등) |
-| persona_role | String | 상사 직책/역할 |
-| background | Text | 과제 배경 |
-| tech_stack | JSONB | 기술 스택 목록 |
-| requirements | Text | 요구사항 |
-| deliverables | JSONB | 제출물 목록 |
-| difficulty | String | 난이도 (junior/mid/senior) |
+| title | String | 문제 제목 |
+| description | Text | 상세 문제 설명 |
+| category | String | 카테고리 태그 (자료구조, 시스템 설계, 기술면접) |
+| difficulty | String | 난이도 (상/중/하) |
+| estimated_minutes | Integer | 예상 소요시간 |
+| answer_type | String DEFAULT 'text' | text/code |
+| key_points | JSONB NULL | `[{"point": "...", "category": "..."}]` |
+| tech_stack | JSONB NULL | `["Python", "FastAPI"]` |
 | created_at | DateTime | |
-
-### task_key_points
-| 컬럼 | 타입 | 설명 |
-|------|------|------|
-| id | Integer PK | |
-| task_id | Integer | tasks.id 참조 |
-| point | Text | 핵심 평가 포인트 |
-| category | String | 카테고리 (구현력/이해도/설계) |
 
 ### submissions
 | 컬럼 | 타입 | 설명 |
@@ -71,41 +68,50 @@
 | id | Integer PK | |
 | user_id | Integer | users.id 참조 |
 | task_id | Integer | tasks.id 참조 |
-| content | Text | 제출 내용 (마크다운) |
-| status | String | pending / reviewing / evaluated |
+| content | Text | 사용자 답변 |
+| is_draft | Boolean DEFAULT false | 임시저장 여부 |
+| status | String | draft / submitted / reviewing / evaluated |
+| time_spent_seconds | Integer NULL | 실제 소요시간 (초) |
 | created_at | DateTime | |
 | updated_at | DateTime | |
 
-### threads
+### threads (submission과 1:1)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | Integer PK | |
 | submission_id | Integer UNIQUE | submissions.id 참조 (1:1) |
+| user_id | Integer | users.id (비정규화) |
+| persona_name | String | AI 상사 이름 |
+| persona_department | String | 부서 |
+| topic_tag | String | 주제 태그 |
 | status | String | questioning / completed |
-| total_questions | Integer | 생성된 총 질문 수 |
-| asked_count | Integer DEFAULT 0 | 질문한 수 |
+| total_questions | Integer | 총 질문 수 (3~5) |
+| asked_count | Integer DEFAULT 0 | 질문 진행 수 |
 | created_at | DateTime | |
+| updated_at | DateTime | |
 
 ### messages
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | Integer PK | |
 | thread_id | Integer | threads.id 참조 |
-| role | String | ai / user |
+| role | String | ai / user / system |
 | content | Text | 메시지 내용 |
 | message_order | Integer | 순서 |
 | created_at | DateTime | |
 
-### evaluations
+### evaluations (submission과 1:1)
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | id | Integer PK | |
-| submission_id | Integer UNIQUE | submissions.id 참조 (1:1) |
-| implementation_score | Integer | 구현력 점수 (0-100) |
-| understanding_score | Integer | 이해도 점수 (0-100) |
+| submission_id | Integer UNIQUE | submissions.id 참조 |
+| thread_id | Integer UNIQUE | threads.id 참조 (비정규화) |
 | total_score | Integer | 종합 점수 (0-100) |
-| feedback | Text | 종합 피드백 |
-| detail | JSONB | 항목별 상세 평가 |
+| score_label | String | 등급 (Outstanding, Good 등) |
+| scores_detail | JSONB | `[{"name": "시장 분석력", "score": 88}]` |
+| ai_summary | Text | AI 분석 요약 |
+| analysis_points | JSONB | `{"strengths": [...], "weaknesses": [...]}` |
+| feedback | Text NULL | 종합 피드백 |
 | created_at | DateTime | |
 
 ### user_competencies
@@ -117,240 +123,75 @@
 | job_role_id | Integer | job_roles.id 참조 |
 | avg_score | Float | 평균 점수 |
 | attempt_count | Integer | 시도 횟수 |
+| weak_tags | JSONB NULL | 약점 태그 목록 |
 | updated_at | DateTime | |
+
+UNIQUE: `(user_id, company_id, job_role_id)`
 
 ---
 
 ## 2. API 엔드포인트
 
+모든 응답: `{"success": true/false, "data": ..., "error": null/{"code": "...", "message": "..."}}`
+
 ### Auth (`/auth`)
-
-#### `POST /auth/google`
-Google OAuth 로그인 → JWT 발급
-```
-Request:  { "id_token": "Google에서 받은 ID 토큰" }
-Response: { "access_token": "jwt...", "user": { "id", "email", "name", "profile_image" } }
-```
-
-#### `GET /auth/me`
-현재 로그인 사용자 정보
-```
-Headers:  Authorization: Bearer <jwt>
-Response: { "id", "email", "name", "profile_image" }
-```
-
----
+- `POST /auth/google` - Google OAuth → JWT 발급
+- `GET /auth/me` [인증] - 현재 사용자 정보
 
 ### Companies (`/companies`)
-
-#### `GET /companies`
-기업 목록 조회
-```
-Response: [{ "id", "name", "description", "logo_url" }]
-```
-
----
+- `GET /companies?q=&limit=` - 기업 검색
 
 ### Job Roles (`/job-roles`)
+- `GET /job-roles/categories` - 직무 대분류 목록
+- `GET /job-roles?category=&q=` - 직무 목록
 
-#### `GET /job-roles`
-직무 목록 조회
-```
-Response: [{ "id", "name", "description" }]
-```
+### Tasks (`/tasks`) [인증]
+- `POST /tasks/generate` - AI 문제 생성
+- `GET /tasks?company_id=&job_role_id=` - 문제 목록
+- `GET /tasks/{task_id}` - 문제 상세
 
----
+### Submissions (`/submissions`) [인증]
+- `POST /submissions` - 답변 제출 / 임시저장 (제출 시 thread + 첫 메시지 자동 생성)
+- `PUT /submissions/{id}` - 임시저장 업데이트 / 제출 전환
+- `GET /submissions/{id}` - 제출 상세
 
-### Tasks (`/tasks`)
+### Threads & Messages (`/threads`) [인증]
+- `GET /threads` - 채팅 목록 (직무대화 탭)
+- `GET /threads/{id}` - 채팅 상세 (메시지 포함)
+- `POST /threads/{id}/messages` - 메시지 전송 (마지막 답변 시 자동 채점)
 
-#### `GET /tasks?company_id={id}&job_role_id={id}`
-과제 목록 조회 (DB에 없으면 AI로 3~5개 생성 후 반환)
-```
-Headers:  Authorization: Bearer <jwt>
-Response: [{ "id", "company_id", "job_role_id", "title", "persona_name", "persona_role", "difficulty" }]
-```
-- 내부 로직: company_id + job_role_id 조합으로 DB 조회 → 없으면 Vertex AI Search + Gemini로 생성 → DB 저장 → 반환
+### Evaluations (`/evaluations`) [인증]
+- `GET /evaluations/{id}` - AI 분석 결과 상세
 
-#### `GET /tasks/{task_id}`
-과제 상세 조회
-```
-Headers:  Authorization: Bearer <jwt>
-Response: {
-  "id", "title", "persona_name", "persona_role",
-  "background", "tech_stack", "requirements", "deliverables", "difficulty",
-  "company": { "id", "name" },
-  "job_role": { "id", "name" }
-}
-```
+### Dashboard (`/dashboard`) [인증]
+- `GET /dashboard/summary` - 대시보드
 
----
+### Profile (`/profile`) [인증]
+- `GET /profile` - 프로필
+- `PATCH /profile` - 프로필 수정
 
-### Submissions (`/submissions`)
-
-#### `POST /submissions`
-과제 제출 (자동으로 채팅 스레드 생성 + AI 첫 질문 포함)
-```
-Headers:  Authorization: Bearer <jwt>
-Request:  { "task_id": 1, "content": "마크다운 제출 내용" }
-Response: {
-  "submission": { "id", "task_id", "content", "status": "reviewing" },
-  "thread": { "id", "status": "questioning", "total_questions": 4 },
-  "first_message": { "id", "role": "ai", "content": "제출 확인했습니다. 첫 번째 질문입니다..." }
-}
-```
-- 내부 로직: 제출물 저장 → 스레드 생성 → 제출물 + key_points 기반으로 Gemini에 질문 목록 생성 → 첫 질문 메시지 저장 → 반환
-
-#### `GET /submissions/{submission_id}`
-제출 상세 조회
-```
-Headers:  Authorization: Bearer <jwt>
-Response: {
-  "id", "task_id", "content", "status", "created_at",
-  "task": { "id", "title", "persona_name" },
-  "thread": { "id", "status", "total_questions", "asked_count" },
-  "evaluation": { "total_score", ... } | null
-}
-```
-
-#### `GET /submissions`
-내 제출 목록
-```
-Headers:  Authorization: Bearer <jwt>
-Query:    ?task_id={id} (선택)
-Response: [{ "id", "task_id", "status", "created_at", "task": { "title", "persona_name" } }]
-```
+### Dev AI 테스트 (`/dev/ai`)
+- `POST /dev/ai/generate-tasks`
+- `POST /dev/ai/generate-persona`
+- `POST /dev/ai/evaluate`
 
 ---
 
-### Messages (`/submissions/{submission_id}/messages`)
+## 3. 데이터 플로우
 
-#### `GET /submissions/{submission_id}/messages`
-채팅 메시지 목록
 ```
-Headers:  Authorization: Bearer <jwt>
-Response: [{ "id", "role", "content", "message_order", "created_at" }]
+[직무 목표 설정] GET /job-roles/categories → GET /job-roles?category= → GET /companies?q=
+                 → POST /tasks/generate { company_id, job_role_id }
+
+[홈 - 문제 풀이] GET /tasks → GET /tasks/{id}
+                 → POST /submissions { content, is_draft: false }
+                 → submission + thread + first_message 생성
+
+[직무대화]       GET /threads → GET /threads/{id}
+                 → POST /threads/{id}/messages
+                 → 마지막 답변 시 evaluation 자동 생성
+
+[AI 분석 결과]   GET /evaluations/{id}
+[분석 대시보드]  GET /dashboard/summary
+[프로필]         GET /profile, PATCH /profile
 ```
-
-#### `POST /submissions/{submission_id}/messages`
-사용자 답변 전송 → AI 후속 응답 반환 (마지막 질문이면 자동 채점)
-```
-Headers:  Authorization: Bearer <jwt>
-Request:  { "content": "사용자 답변" }
-Response: {
-  "user_message": { "id", "role": "user", "content": "..." },
-  "ai_message": { "id", "role": "ai", "content": "..." } | null,
-  "thread": { "status": "questioning" | "completed", "asked_count": 3 },
-  "evaluation": null | { "total_score", "implementation_score", "understanding_score", "feedback" }
-}
-```
-- 내부 로직:
-  1. 사용자 메시지 저장
-  2. asked_count < total_questions → Gemini에 다음 질문 생성 → AI 메시지 저장
-  3. asked_count == total_questions → 스레드 completed → 채점 시작 → evaluation 저장 → submission status: evaluated
-
----
-
-### Dashboard (`/dashboard`)
-
-#### `GET /dashboard/me`
-내 역량 대시보드
-```
-Headers:  Authorization: Bearer <jwt>
-Response: {
-  "total_submissions": 12,
-  "avg_score": 78.5,
-  "competencies": [
-    { "company": { "name": "토스" }, "job_role": { "name": "백엔드" }, "avg_score": 85, "attempt_count": 3 }
-  ],
-  "recent_evaluations": [
-    { "submission_id", "task_title", "total_score", "created_at" }
-  ]
-}
-```
-
-#### `GET /dashboard/me/evaluations`
-내 채점 결과 목록
-```
-Headers:  Authorization: Bearer <jwt>
-Response: [{
-  "id", "submission_id", "total_score", "implementation_score", "understanding_score",
-  "feedback", "detail", "created_at",
-  "task": { "title", "company_name", "job_role_name" }
-}]
-```
-
-#### `GET /dashboard/me/evaluations/{evaluation_id}`
-채점 결과 상세
-```
-Headers:  Authorization: Bearer <jwt>
-Response: {
-  "id", "implementation_score", "understanding_score", "total_score",
-  "feedback", "detail",
-  "submission": { "content" },
-  "messages": [{ "role", "content" }],
-  "task": { "title", "persona_name", "company": { "name" } }
-}
-```
-
----
-
-### Dev - AI 테스트 (`/dev/ai`) - 개발 환경에서만 활성화
-
-#### `POST /dev/ai/generate-tasks`
-과제 생성 AI 직접 테스트 (DB 저장 없이 결과만 반환)
-```
-Request:  { "company_name": "토스", "job_role_name": "백엔드", "count": 3 }
-Response: {
-  "tasks": [{
-    "title", "persona_name", "persona_role", "background",
-    "tech_stack", "requirements", "deliverables", "difficulty",
-    "key_points": [{ "point", "category" }]
-  }]
-}
-```
-
-#### `POST /dev/ai/generate-questions`
-질문 생성 AI 직접 테스트
-```
-Request:  { "task_title": "간편송금 API 구현", "key_points": ["트랜잭션 처리", "에러 핸들링"], "submission_content": "제출 내용..." }
-Response: {
-  "questions": ["Controller에서 @Transactional을...", "에러 발생 시 롤백 전략은..."]
-}
-```
-
-#### `POST /dev/ai/evaluate`
-채점 AI 직접 테스트
-```
-Request:  { "task_title": "...", "submission_content": "...", "messages": [{"role": "ai", "content": "..."}, ...] }
-Response: {
-  "implementation_score": 85, "understanding_score": 78, "total_score": 82,
-  "feedback": "...", "detail": { ... }
-}
-```
-
----
-
-## 3. 구현 순서
-
-### Phase 1: 기반 구축
-1. `src/core/` (config, database, response)
-2. `src/models/database/` (전체 ORM 모델, FK 제약조건 없음)
-3. `src/models/schemas/` (전체 Pydantic 스키마)
-4. Alembic 초기 설정 + 마이그레이션
-
-### Phase 2: 인증
-5. `src/routers/auth.py` + `src/services/auth_service.py`
-6. JWT 미들웨어 (`src/core/auth.py`)
-
-### Phase 3: 조회 API
-7. `src/routers/companies.py` + `src/routers/job_roles.py`
-8. 시드 데이터 스크립트
-
-### Phase 4: 핵심 기능
-9. `src/services/search_service.py` (Vertex AI Search)
-10. `src/services/ai_service.py` (Gemini - 과제 생성/질문 생성/채점)
-11. `src/routers/tasks.py` + `src/services/task_service.py`
-12. `src/routers/submissions.py` + `src/services/submission_service.py`
-
-### Phase 5: 대시보드
-13. `src/routers/dashboard.py` + `src/services/dashboard_service.py`
