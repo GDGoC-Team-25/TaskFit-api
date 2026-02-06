@@ -8,6 +8,7 @@ from src.models.database.task import Task
 from src.models.database.thread import Thread
 from src.models.database.user import User
 from src.models.database.user_competency import UserCompetency
+from src.models.database.crawl_data import CrawlData
 
 __all__ = [
     "Base",
@@ -20,4 +21,5 @@ __all__ = [
     "Message",
     "Evaluation",
     "UserCompetency",
+    "CrawlData",
 ]

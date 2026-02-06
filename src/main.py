@@ -57,7 +57,6 @@ if settings.environment != "production":
 
     app.include_router(dev.router)
 
-
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
