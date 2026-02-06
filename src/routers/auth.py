@@ -5,14 +5,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.auth import create_access_token, get_current_user_id
 from src.core.config import get_settings
 from src.core.database import get_db
-from src.core.response import success_response
+from src.core.response import ApiResponse, success_response
 from src.models.schemas.auth import GoogleLoginRequest, TokenResponse, UserResponse
 from src.services import user_service
 
 router = APIRouter(prefix="/auth", tags=["인증"])
 
 
-@router.post("/google", response_model=dict)
+@router.post("/google", response_model=ApiResponse[TokenResponse])
 async def google_login(
     body: GoogleLoginRequest,
     db: AsyncSession = Depends(get_db),
@@ -35,8 +35,9 @@ async def google_login(
 
     token_info = resp.json()
 
-    # audience 검증
-    if token_info.get("aud") != settings.google_client_id:
+    # audience 검증 (웹 + 모바일 Client ID 모두 허용)
+    allowed_audiences = {settings.google_client_id, settings.google_client_id_mobile} - {""}
+    if token_info.get("aud") not in allowed_audiences:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "INVALID_AUDIENCE", "message": "토큰의 audience가 일치하지 않습니다"},
@@ -66,7 +67,7 @@ async def google_login(
     return success_response(token_response.model_dump())
 
 
-@router.get("/me", response_model=dict)
+@router.get("/me", response_model=ApiResponse[UserResponse])
 async def get_me(
     user_id: int = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),

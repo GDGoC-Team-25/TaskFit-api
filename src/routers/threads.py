@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user_id
 from src.core.database import get_db
-from src.core.response import success_response
+from src.core.response import ApiResponse, success_response
 from src.models.schemas.message import (
     ChatResponse,
     EvaluationInline,
@@ -30,7 +30,7 @@ from src.services import (
 router = APIRouter(prefix="/threads", tags=["질의응답"])
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=ApiResponse[ThreadListResponse])
 async def get_threads(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -89,7 +89,7 @@ async def get_threads(
     return success_response(response.model_dump())
 
 
-@router.get("/{thread_id}", response_model=dict)
+@router.get("/{thread_id}", response_model=ApiResponse[ThreadDetailResponse])
 async def get_thread_detail(
     thread_id: int,
     user_id: int = Depends(get_current_user_id),
@@ -136,7 +136,7 @@ async def get_thread_detail(
     return success_response(response.model_dump())
 
 
-@router.post("/{thread_id}/messages", response_model=dict)
+@router.post("/{thread_id}/messages", response_model=ApiResponse[ChatResponse])
 async def add_message(
     thread_id: int,
     body: MessageCreateRequest,

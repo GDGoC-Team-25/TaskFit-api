@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.auth import get_current_user_id
 from src.core.database import get_db
-from src.core.response import success_response
+from src.core.response import ApiResponse, success_response
 from src.models.schemas.company import CompanyBrief
 from src.models.schemas.job_role import JobRoleBrief
 from src.models.schemas.task import (
@@ -18,7 +18,7 @@ from src.services import ai_service, company_service, submission_service, task_s
 router = APIRouter(prefix="/tasks", tags=["과제"])
 
 
-@router.post("/generate", response_model=dict)
+@router.post("/generate", response_model=ApiResponse[list[TaskGeneratedItem]])
 async def generate_tasks(
     body: TaskGenerateRequest,
     user_id: int = Depends(get_current_user_id),
@@ -84,7 +84,7 @@ async def generate_tasks(
     return success_response(result)
 
 
-@router.get("", response_model=dict)
+@router.get("", response_model=ApiResponse[TaskListResponse])
 async def get_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -122,7 +122,7 @@ async def get_tasks(
     return success_response(response.model_dump())
 
 
-@router.get("/{task_id}", response_model=dict)
+@router.get("/{task_id}", response_model=ApiResponse[TaskDetailResponse])
 async def get_task_detail(
     task_id: int,
     user_id: int = Depends(get_current_user_id),
