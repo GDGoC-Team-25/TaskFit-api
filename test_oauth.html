@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>TaskFit OAuth Test</title>
+  <script src="https://accounts.google.com/gsi/client" async></script>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; }
+    pre { background: #f4f4f4; padding: 16px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+    .section { margin: 24px 0; }
+    h2 { color: #333; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 6px; border: 1px solid #ccc; margin: 4px; }
+    button:hover { background: #eee; }
+    #result { color: green; }
+    #error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>TaskFit Google OAuth Test</h1>
+
+  <div class="section">
+    <h2>1. Google 로그인</h2>
+    <div id="g_id_onload"
+      data-client_id="286917368950-32heiegoa8knaltf7kncf1jdd5terfth.apps.googleusercontent.com"
+      data-callback="handleCredentialResponse"
+      data-auto_prompt="false">
+    </div>
+    <div class="g_id_signin" data-type="standard" data-size="large" data-theme="outline"></div>
+  </div>
+
+  <div class="section">
+    <h2>2. ID Token</h2>
+    <pre id="id-token">아직 로그인하지 않았습니다.</pre>
+  </div>
+
+  <div class="section">
+    <h2>3. API 호출</h2>
+    <button onclick="callAuthGoogle()">POST /auth/google</button>
+    <button onclick="callAuthMe()">GET /auth/me</button>
+    <pre id="result"></pre>
+    <pre id="error"></pre>
+  </div>
+
+  <script>
+    const API_URL = "https://taskfit-api-286917368950.asia-northeast3.run.app";
+    let idToken = null;
+    let accessToken = null;
+
+    function handleCredentialResponse(response) {
+      idToken = response.credential;
+      document.getElementById("id-token").textContent = idToken;
+      console.log("ID Token:", idToken);
+    }
+
+    async function callAuthGoogle() {
+      if (!idToken) { showError("먼저 Google 로그인을 해주세요."); return; }
+      clearOutput();
+      try {
+        const res = await fetch(`${API_URL}/auth/google`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id_token: idToken }),
+        });
+        const data = await res.json();
+        if (data.success && data.data) {
+          accessToken = data.data.access_token;
+        }
+        showResult(data);
+      } catch (e) { showError(e.message); }
+    }
+
+    async function callAuthMe() {
+      if (!accessToken) { showError("먼저 POST /auth/google을 호출해주세요."); return; }
+      clearOutput();
+      try {
+        const res = await fetch(`${API_URL}/auth/me`, {
+          headers: { "Authorization": `Bearer ${accessToken}` },
+        });
+        const data = await res.json();
+        showResult(data);
+      } catch (e) { showError(e.message); }
+    }
+
+    function showResult(data) {
+      document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+      document.getElementById("error").textContent = "";
+    }
+    function showError(msg) {
+      document.getElementById("error").textContent = msg;
+      document.getElementById("result").textContent = "";
+    }
+    function clearOutput() {
+      document.getElementById("result").textContent = "";
+      document.getElementById("error").textContent = "";
+    }
+  </script>
+</body>
+</html>
